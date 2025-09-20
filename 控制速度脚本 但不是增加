@@ -1,0 +1,473 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- 配置
+local slowMotionFactor = 50 -- 默认50%速度 (0-100范围)
+local isSlowMotion = false
+local originalWalkSpeed = Humanoid.WalkSpeed
+local originalJumpPower = Humanoid.JumpPower
+local isMinimized = false -- 跟踪UI是否最小化
+
+-- 创建UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SlowMotionUI"
+ScreenGui.Parent = game.CoreGui
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- 主框架
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 200, 0, 180)
+MainFrame.Position = UDim2.new(0.5, -100, 0.1, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+-- 标题栏 (用于拖动)
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 30)
+TitleBar.Position = UDim2.new(0, 0, 0, 0)
+TitleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = TitleBar
+
+local TitleText = Instance.new("TextLabel")
+TitleText.Size = UDim2.new(1, 0, 1, 0)
+TitleText.Position = UDim2.new(0, 0, 0, 0)
+TitleText.BackgroundTransparency = 1
+TitleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleText.Font = Enum.Font.SourceSansBold
+TitleText.TextSize = 16
+TitleText.Text = "慢动作控制器"
+TitleText.Parent = TitleBar
+
+-- 最小化按钮 (新增)
+local MinimizeButton = Instance.new("TextButton")
+MinimizeButton.Size = UDim2.new(0, 30, 0, 30)
+MinimizeButton.Position = UDim2.new(1, -70, 0, 0)
+MinimizeButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinimizeButton.Font = Enum.Font.SourceSansBold
+MinimizeButton.TextSize = 16
+MinimizeButton.Text = "-"
+MinimizeButton.Parent = TitleBar
+
+local MinimizeCorner = Instance.new("UICorner")
+MinimizeCorner.CornerRadius = UDim.new(0, 15)
+MinimizeCorner.Parent = MinimizeButton
+
+-- 关闭按钮 (位置调整)
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Position = UDim2.new(1, -35, 0, 0)
+CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.Font = Enum.Font.SourceSansBold
+CloseButton.TextSize = 16
+CloseButton.Text = "X"
+CloseButton.Parent = TitleBar
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 15)
+CloseCorner.Parent = CloseButton
+
+-- 内容容器 (用于最小化时隐藏内容)
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Size = UDim2.new(1, 0, 1, -30)
+ContentFrame.Position = UDim2.new(0, 0, 0, 30)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+-- 开关按钮 (更大更明显)
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0.9, 0, 0, 40)
+ToggleButton.Position = UDim2.new(0.05, 0, 0.2, 0)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 16
+ToggleButton.Text = "慢动作: 关闭"
+ToggleButton.Parent = ContentFrame
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = ToggleButton
+
+-- 速度标签
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(0.9, 0, 0, 20)
+SpeedLabel.Position = UDim2.new(0.05, 0, 0.45, 0)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedLabel.Font = Enum.Font.SourceSans
+SpeedLabel.TextSize = 14
+SpeedLabel.Text = "速度: 50%"
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = ContentFrame
+
+-- 速度滑块
+local SpeedSlider = Instance.new("Frame")
+SpeedSlider.Size = UDim2.new(0.9, 0, 0, 20)
+SpeedSlider.Position = UDim2.new(0.05, 0, 0.55, 0)
+SpeedSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+SpeedSlider.Parent = ContentFrame
+
+local SliderCorner = Instance.new("UICorner")
+SliderCorner.CornerRadius = UDim.new(0, 4)
+SliderCorner.Parent = SpeedSlider
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(0.5, 0, 1, 0)
+SliderFill.Position = UDim2.new(0, 0, 0, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SpeedSlider
+
+local FillCorner = Instance.new("UICorner")
+FillCorner.CornerRadius = UDim.new(0, 4)
+FillCorner.Parent = SliderFill
+
+local SliderButton = Instance.new("TextButton")
+SliderButton.Size = UDim2.new(0, 20, 0, 20)
+SliderButton.Position = UDim2.new(0.5, -10, 0, 0)
+SliderButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderButton.Text = ""
+SliderButton.Parent = SpeedSlider
+
+local SliderButtonCorner = Instance.new("UICorner")
+SliderButtonCorner.CornerRadius = UDim.new(0, 10)
+SliderButtonCorner.Parent = SliderButton
+
+-- 速度控制按钮 (- 和 +)
+local SpeedControls = Instance.new("Frame")
+SpeedControls.Size = UDim2.new(0.9, 0, 0, 30)
+SpeedControls.Position = UDim2.new(0.05, 0, 0.7, 0)
+SpeedControls.BackgroundTransparency = 1
+SpeedControls.Parent = ContentFrame
+
+local SpeedDownButton = Instance.new("TextButton")
+SpeedDownButton.Size = UDim2.new(0, 40, 0, 30)
+SpeedDownButton.Position = UDim2.new(0, 0, 0, 0)
+SpeedDownButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+SpeedDownButton.Text = "-"
+SpeedDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedDownButton.Font = Enum.Font.SourceSansBold
+SpeedDownButton.TextSize = 18
+SpeedDownButton.Parent = SpeedControls
+
+local SpeedDownCorner = Instance.new("UICorner")
+SpeedDownCorner.CornerRadius = UDim.new(0, 6)
+SpeedDownCorner.Parent = SpeedDownButton
+
+local SpeedValueLabel = Instance.new("TextLabel")
+SpeedValueLabel.Size = UDim2.new(0, 70, 0, 30)
+SpeedValueLabel.Position = UDim2.new(0.5, -35, 0, 0)
+SpeedValueLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+SpeedValueLabel.Text = "50%"
+SpeedValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedValueLabel.Font = Enum.Font.SourceSansBold
+SpeedValueLabel.TextSize = 16
+SpeedValueLabel.Parent = SpeedControls
+
+local SpeedValueCorner = Instance.new("UICorner")
+SpeedValueCorner.CornerRadius = UDim.new(0, 6)
+SpeedValueCorner.Parent = SpeedValueLabel
+
+local SpeedUpButton = Instance.new("TextButton")
+SpeedUpButton.Size = UDim2.new(0, 40, 0, 30)
+SpeedUpButton.Position = UDim2.new(1, -40, 0, 0)
+SpeedUpButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+SpeedUpButton.Text = "+"
+SpeedUpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedUpButton.Font = Enum.Font.SourceSansBold
+SpeedUpButton.TextSize = 18
+SpeedUpButton.Parent = SpeedControls
+
+local SpeedUpCorner = Instance.new("UICorner")
+SpeedUpCorner.CornerRadius = UDim.new(0, 6)
+SpeedUpCorner.Parent = SpeedUpButton
+
+-- 更新速度显示
+local function updateSpeedDisplay()
+    local factor = slowMotionFactor / 100
+    SpeedLabel.Text = "速度: " .. slowMotionFactor .. "%"
+    SpeedValueLabel.Text = slowMotionFactor .. "%"
+    SliderFill.Size = UDim2.new(factor, 0, 1, 0)
+    SliderButton.Position = UDim2.new(factor, -10, 0, 0)
+end
+
+-- 设置速度
+local function setSpeed(value)
+    slowMotionFactor = math.clamp(value, 0, 100)
+    updateSpeedDisplay()
+    
+    if isSlowMotion then
+        -- 立即应用新速度
+        Humanoid.WalkSpeed = originalWalkSpeed * (slowMotionFactor / 100)
+        Humanoid.JumpPower = originalJumpPower * (slowMotionFactor / 100)
+        
+        -- 更新动画速度
+        for _, track in pairs(Humanoid:GetPlayingAnimationTracks()) do
+            track:AdjustSpeed(slowMotionFactor / 100)
+        end
+    end
+end
+
+-- 启用慢动作
+local function enableSlowMotion()
+    isSlowMotion = true
+    
+    -- 降低移动速度
+    local factor = slowMotionFactor / 100
+    Humanoid.WalkSpeed = originalWalkSpeed * factor
+    Humanoid.JumpPower = originalJumpPower * factor
+    
+    -- 降低动画速度
+    for _, track in pairs(Humanoid:GetPlayingAnimationTracks()) do
+        track:AdjustSpeed(factor)
+    end
+    
+    -- 监听新动画
+    local connection
+    connection = Humanoid.AnimationPlayed:Connect(function(track)
+        track:AdjustSpeed(factor)
+    end)
+    
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 200)
+    ToggleButton.Text = "慢动作: 开启"
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "慢动作模式",
+        Text = "已启用 - 速度: " .. slowMotionFactor .. "%",
+        Duration = 2
+    })
+end
+
+-- 禁用慢动作
+local function disableSlowMotion()
+    isSlowMotion = false
+    
+    -- 恢复移动速度
+    Humanoid.WalkSpeed = originalWalkSpeed
+    Humanoid.JumpPower = originalJumpPower
+    
+    -- 恢复动画速度
+    for _, track in pairs(Humanoid:GetPlayingAnimationTracks()) do
+        track:AdjustSpeed(1)
+    end
+    
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    ToggleButton.Text = "慢动作: 关闭"
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "慢动作模式",
+        Text = "已禁用 - 速度恢复正常",
+        Duration = 2
+    })
+end
+
+-- 切换UI最小化状态
+local function toggleMinimize()
+    if isMinimized then
+        -- 展开UI
+        MainFrame.Size = UDim2.new(0, 200, 0, 180)
+        ContentFrame.Visible = true
+        MinimizeButton.Text = "-"
+        isMinimized = false
+    else
+        -- 最小化UI
+        MainFrame.Size = UDim2.new(0, 200, 0, 30)
+        ContentFrame.Visible = false
+        MinimizeButton.Text = "+"
+        isMinimized = true
+    end
+end
+
+-- 切换慢动作状态
+ToggleButton.MouseButton1Click:Connect(function()
+    if isSlowMotion then
+        disableSlowMotion()
+    else
+        enableSlowMotion()
+    end
+end)
+
+-- 最小化按钮事件
+MinimizeButton.MouseButton1Click:Connect(toggleMinimize)
+
+-- 速度按钮事件
+SpeedDownButton.MouseButton1Click:Connect(function()
+    setSpeed(slowMotionFactor - 10)
+end)
+
+SpeedUpButton.MouseButton1Click:Connect(function()
+    setSpeed(slowMotionFactor + 10)
+end)
+
+-- 关闭按钮事件
+CloseButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    
+    game:GetService("StarterGui"):SetCore("SendNotification", {
+        Title = "慢动作控制器",
+        Text = "UI已隐藏，使用控制台命令重新显示",
+        Duration = 3
+    })
+end)
+
+-- 滑块拖动功能
+local sliderDragging = false
+
+SliderButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        sliderDragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        sliderDragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local xPos = math.clamp(input.Position.X - SpeedSlider.AbsolutePosition.X, 0, SpeedSlider.AbsoluteSize.X)
+        local percentage = xPos / SpeedSlider.AbsoluteSize.X
+        setSpeed(math.floor(percentage * 100))
+    end
+end)
+
+-- 点击滑块任意位置设置值
+SpeedSlider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local xPos = math.clamp(input.Position.X - SpeedSlider.AbsolutePosition.X, 0, SpeedSlider.AbsoluteSize.X)
+        local percentage = xPos / SpeedSlider.AbsoluteSize.X
+        setSpeed(math.floor(percentage * 100))
+    end
+end)
+
+-- 修复拖动功能
+local dragging = false
+local dragStart, startPos
+
+-- 标题栏拖动事件
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        -- 捕获焦点，防止拖动时其他元素干扰
+        local con
+        con = input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                con:Disconnect()
+            end
+        end)
+    end
+end)
+
+TitleBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- 角色重生处理
+local function onCharacterAdded(character)
+    Character = character
+    Humanoid = character:WaitForChild("Humanoid")
+    HumanoidRootPart = character:WaitForChild("HumanoidRootPart")
+    
+    -- 保存原始速度
+    originalWalkSpeed = Humanoid.WalkSpeed
+    originalJumpPower = Humanoid.JumpPower
+    
+    -- 重置状态但保持设置
+    if isSlowMotion then
+        enableSlowMotion()
+    else
+        disableSlowMotion()
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+-- 初始提示
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "慢动作控制器已加载",
+    Text = "点击标题栏的'-'按钮可以最小化UI",
+    Duration = 5
+})
+
+-- 确保UI在最前面
+ScreenGui.DisplayOrder = 10
+
+-- 注入器兼容性代码
+if not getgenv then getgenv = function() return getfenv(0) end end
+if not getrenv then getrenv = function() return getfenv(0) end end
+
+-- 保存到全局环境以便注入器访问
+getgenv().SlowMotionToggle = function()
+    if isSlowMotion then
+        disableSlowMotion()
+    else
+        enableSlowMotion()
+    end
+end
+
+getgenv().SetSlowMotionFactor = function(factor)
+    setSpeed(factor * 100)
+end
+
+getgenv().SetSlowMotionPercent = function(percent)
+    setSpeed(percent)
+end
+
+getgenv().ShowSlowMotionUI = function()
+    MainFrame.Visible = true
+end
+
+getgenv().HideSlowMotionUI = function()
+    MainFrame.Visible = false
+end
+
+getgenv().ToggleMinimizeUI = function()
+    toggleMinimize()
+end
+
+print("慢动作脚本已加载 - 使用以下命令控制:")
+print("SlowMotionToggle() - 切换慢动作开关")
+print("SetSlowMotionPercent(number) - 设置速度百分比")
+print("ShowSlowMotionUI() - 显示UI")
+print("HideSlowMotionUI() - 隐藏UI")
+print("ToggleMinimizeUI() - 切换UI最小化状态")
